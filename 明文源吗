@@ -2,7 +2,6 @@
 
     let at = '351c9981-04b6-4103-aa4b-864aa9c91469';
     let fallbackAddress = '';
-    let fallbackPort = '443';
     let socks5Config = '';
     let customPreferredIPs = [];
     let customPreferredDomains = [];
