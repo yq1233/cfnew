@@ -139,6 +139,32 @@ async function getBestBackupIP(workerRegion = '') {
     return availableIPs[0];
 }
 
+function parseAddressAndPort(input) {
+    if (!input) return { address: '', port: null };
+    if (input.includes('[') && input.includes(']')) {
+        const match = input.match(/^\[([^\]]+)\](?::(\d+))?$/);
+        if (match) {
+            return {
+                address: match[1],
+                port: match[2] ? parseInt(match[2], 10) : null
+            };
+        }
+    }
+    
+    const lastColonIndex = input.lastIndexOf(':');
+    if (lastColonIndex > 0) {
+        const address = input.substring(0, lastColonIndex);
+        const portStr = input.substring(lastColonIndex + 1);
+        const port = parseInt(portStr, 10);
+        
+        if (!isNaN(port) && port > 0 && port <= 65535) {
+            return { address, port };
+        }
+    }
+    
+    return { address: input, port: null };
+}
+
 export default {
 	async fetch(request, env, ctx) {
 		try {
@@ -153,17 +179,15 @@ export default {
 			
 			// 根据地区智能选择备用IP作为访问失败时的备用（每次请求都重新选择）
 			let currentFallbackAddress = fallbackAddress;
-			let currentFallbackPort = fallbackPort;
 			if (!currentFallbackAddress && currentWorkerRegion) {
 				const bestBackupIP = await getBestBackupIP(currentWorkerRegion);
 				if (bestBackupIP) {
-					currentFallbackAddress = bestBackupIP.domain;
-					currentFallbackPort = bestBackupIP.port.toString();
+					currentFallbackAddress = bestBackupIP.domain + ':' + bestBackupIP.port;
 				}
 			}
 
 			if (request.headers.get('Upgrade') === 'websocket') {
-				return await handleWsRequest(request, currentFallbackAddress, currentFallbackPort);
+				return await handleWsRequest(request, currentFallbackAddress);
 			} else if (request.method === 'GET') {
 				// 首页提示服务正常
 				if (url.pathname === '/') {
@@ -547,7 +571,7 @@ function generateLinksFromNewIPs(list, uuid, workerDomain) {
 }
 
 // WebSocket处理函数（简化版）
-async function handleWsRequest(request, currentFallbackAddress = null, currentFallbackPort = null) {
+async function handleWsRequest(request, currentFallbackAddress = null) {
     const wsPair = new WebSocketPair();
     const [clientSock, serverSock] = Object.values(wsPair);
     serverSock.accept();
@@ -556,7 +580,6 @@ async function handleWsRequest(request, currentFallbackAddress = null, currentFa
     let isDnsQuery = false;
     
     const fbAddr = currentFallbackAddress || fallbackAddress;
-    const fbPort = currentFallbackPort || fallbackPort;
 
     const earlyData = request.headers.get('sec-websocket-protocol') || '';
     const readable = makeReadableStream(serverSock, earlyData);
@@ -581,17 +604,14 @@ async function handleWsRequest(request, currentFallbackAddress = null, currentFa
             const rawData = chunk.slice(rawIndex);
 
             if (isDnsQuery) return forwardUDP(rawData, serverSock, respHeader);
-            await forwardTCP(addressType, hostname, port, rawData, serverSock, respHeader, remoteConnWrapper, fbAddr, fbPort);
+            await forwardTCP(addressType, hostname, port, rawData, serverSock, respHeader, remoteConnWrapper, fbAddr);
         },
     })).catch((err) => { console.log('WS Stream Error:', err); });
 
     return new Response(null, { status: 101, webSocket: clientSock });
 }
 
-async function forwardTCP(addrType, host, portNum, rawData, ws, respHeader, remoteConnWrapper, fbAddr = null, fbPort = null) {
-    const fallbackAddr = fbAddr || fallbackAddress;
-    const fallbackPortNum = fbPort || fallbackPort;
-    
+async function forwardTCP(addrType, host, portNum, rawData, ws, respHeader, remoteConnWrapper, fbAddr = null) {
     async function connectAndSend(address, port) {
         const remoteSock = connect({ hostname: address, port: port });
         const writer = remoteSock.writable.getWriter();
@@ -600,7 +620,21 @@ async function forwardTCP(addrType, host, portNum, rawData, ws, respHeader, remo
         return remoteSock;
     }
     async function retryConnection() {
-        const newSocket = await connectAndSend(fallbackAddr || host, parseInt(fallbackPortNum, 10) || portNum);
+        let fallbackHost, fallbackPort;
+        if (fbAddr && fbAddr.trim()) {
+            const parsed = parseAddressAndPort(fbAddr);
+            fallbackHost = parsed.address;
+            fallbackPort = parsed.port || portNum;
+        } else if (fallbackAddress && fallbackAddress.trim()) {
+            const parsed = parseAddressAndPort(fallbackAddress);
+            fallbackHost = parsed.address;
+            fallbackPort = parsed.port || portNum;
+        } else {
+            const bestBackupIP = await getBestBackupIP(currentWorkerRegion);
+            fallbackHost = bestBackupIP ? bestBackupIP.domain : host;
+            fallbackPort = bestBackupIP ? bestBackupIP.port : portNum;
+        }
+        const newSocket = await connectAndSend(fallbackHost || host, fallbackPort);
         remoteConnWrapper.socket = newSocket;
         newSocket.closed.catch(() => {}).finally(() => closeSocketQuietly(ws));
         connectStreams(newSocket, ws, respHeader, null);
