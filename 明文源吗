@@ -1983,7 +1983,7 @@
                         KR: '🇰🇷 韩国', DE: '🇩🇪 德国', SE: '🇸🇪 瑞典', NL: '🇳🇱 荷兰',
                         FI: '🇫🇮 芬兰', GB: '🇬🇧 英国'
                     },
-                    terminal: '终端 v2.8',
+                    terminal: '终端 v2.9',
                     githubProject: 'GitHub 项目',
                     autoDetectClient: '自动识别',
                 selectionLogicText: '同地区 → 邻近地区 → 其他地区',
@@ -2114,7 +2114,7 @@
                         KR: '🇰🇷 کره جنوبی', DE: '🇩🇪 آلمان', SE: '🇸🇪 سوئد', NL: '🇳🇱 هلند',
                         FI: '🇫🇮 فنلاند', GB: '🇬🇧 بریتانیا'
                     },
-                    terminal: 'ترمینال v2.8',
+                    terminal: 'ترمینال v2.9',
                     githubProject: 'پروژه GitHub',
                     autoDetectClient: 'تشخیص خودکار',
                 selectionLogicText: 'هم‌منطقه → منطقه مجاور → سایر مناطق',
@@ -2529,8 +2529,23 @@
                                         <button type="button" id="deselectAllResults" style="background: transparent; border: 1px solid #00aa00; padding: 4px 10px; color: #00aa00; font-size: 0.8rem; cursor: pointer;">${t.deselectAll}</button>
                                     </div>
                                 </div>
+                                <div style="margin-bottom: 10px; padding: 10px; background: rgba(0, 20, 0, 0.6); border: 1px solid #00ff00; border-radius: 4px;">
+                                    <div style="margin-bottom: 8px;">
+                                        <label style="display: block; margin-bottom: 5px; color: #00ff00; font-size: 0.9rem; font-weight: bold;">地区筛选（可多选）:</label>
+                                        <div id="regionFilterContainer" style="display: flex; flex-wrap: wrap; gap: 8px;"></div>
+                                    </div>
+                                    <div style="margin-top: 10px;">
+                                        <label style="display: inline-flex; align-items: center; cursor: pointer; color: #00ff00;">
+                                            <input type="checkbox" id="enableTop10Filter" checked style="margin-right: 8px; width: 18px; height: 18px; cursor: pointer;">
+                                            <span style="font-size: 0.9rem;">只显示延迟最快的10个</span>
+                                        </label>
+                                    </div>
+                                </div>
                                 <div id="latencyResultsList" style="background: rgba(0, 0, 0, 0.5); border: 1px solid #004400; border-radius: 4px; padding: 10px;"></div>
-                                <button type="button" id="addSelectedToYx" style="margin-top: 10px; background: rgba(0, 200, 0, 0.3); border: 1px solid #00ff00; padding: 10px 20px; color: #00ff00; font-family: 'Courier New', monospace; font-weight: bold; cursor: pointer; width: 100%; transition: all 0.3s;">✓ ${t.addSelectedToYx}</button>
+                                <div style="margin-top: 10px; display: flex; gap: 10px;">
+                                    <button type="button" id="appendToYx" style="flex: 1; background: rgba(0, 200, 0, 0.3); border: 1px solid #00ff00; padding: 10px 20px; color: #00ff00; font-family: 'Courier New', monospace; font-weight: bold; cursor: pointer; transition: all 0.3s;">➕ 追加到优选列表</button>
+                                    <button type="button" id="replaceYx" style="flex: 1; background: rgba(0, 200, 0, 0.3); border: 1px solid #00ff00; padding: 10px 20px; color: #00ff00; font-family: 'Courier New', monospace; font-weight: bold; cursor: pointer; transition: all 0.3s;">🔄 替换优选列表</button>
+                                </div>
                             </div>
                         </div>
                         
@@ -3648,13 +3663,15 @@
                 
                 let testAbortController = null;
                 let testResults = [];
+                let allSuccessfulResults = []; // 存储所有成功的结果（用于筛选）
                 
                 const startTestBtn = document.getElementById('startLatencyTest');
                 const stopTestBtn = document.getElementById('stopLatencyTest');
                 const testStatus = document.getElementById('latencyTestStatus');
                 const testResultsDiv = document.getElementById('latencyTestResults');
                 const resultsList = document.getElementById('latencyResultsList');
-                const addSelectedBtn = document.getElementById('addSelectedToYx');
+                const appendToYxBtn = document.getElementById('appendToYx');
+                const replaceYxBtn = document.getElementById('replaceYx');
                 const selectAllBtn = document.getElementById('selectAllResults');
                 const deselectAllBtn = document.getElementById('deselectAllResults');
                 const ipSourceSelect = document.getElementById('ipSourceSelect');
@@ -3843,6 +3860,13 @@
                         testResultsDiv.style.display = 'block';
                         resultsList.innerHTML = '';
                         testResults = [];
+                        allSuccessfulResults = [];
+                        
+                        // 初始化地区筛选器（如果还没有初始化）
+                        const regionFilterContainer = document.getElementById('regionFilterContainer');
+                        if (regionFilterContainer && regionFilterContainer.children.length === 0) {
+                            initRegionFilter();
+                        }
                         
                         testAbortController = new AbortController();
                         
@@ -3875,12 +3899,48 @@
                             return { host, port, nodeName };
                         }
                         
-                        function renderResult(result, index) {
-                            // 只展示在线优选成功的结果，失败/超时的不再显示
-                            if (!result.success) {
-                                return;
+                        // 筛选并重新渲染结果
+                        function filterAndRenderResults() {
+                            resultsList.innerHTML = '';
+                            
+                            // 获取选中的地区
+                            const selectedRegions = [];
+                            const regionCheckboxes = document.querySelectorAll('#regionFilterContainer input[type="checkbox"]:checked');
+                            regionCheckboxes.forEach(cb => {
+                                selectedRegions.push(cb.value);
+                            });
+                            
+                            // 获取是否启用最快10个筛选
+                            const enableTop10 = document.getElementById('enableTop10Filter').checked;
+                            
+                            // 筛选结果
+                            let filteredResults = allSuccessfulResults.slice();
+                            
+                            // 按地区筛选（如果选择了地区，则只显示选中地区的结果）
+                            if (selectedRegions.length > 0) {
+                                filteredResults = filteredResults.filter(result => {
+                                    const region = result.region || 'OTHER';
+                                    return selectedRegions.includes(region);
+                                });
+                            }
+                            // 如果没有选择任何地区，显示所有结果（但这种情况不应该发生，因为默认全选）
+                            
+                            // 按延迟排序
+                            filteredResults.sort((a, b) => a.latency - b.latency);
+                            
+                            // 如果启用最快10个筛选，只取前10个
+                            if (enableTop10 && filteredResults.length > 10) {
+                                filteredResults = filteredResults.slice(0, 10);
                             }
                             
+                            // 渲染结果
+                            filteredResults.forEach((result, idx) => {
+                                const originalIndex = result.originalIndex !== undefined ? result.originalIndex : allSuccessfulResults.indexOf(result);
+                                renderResultItem(result, originalIndex);
+                            });
+                        }
+                        
+                        function renderResultItem(result, index) {
                             const resultItem = document.createElement('div');
                             resultItem.style.cssText = 'display: flex; align-items: center; padding: 8px; border-bottom: 1px solid #003300; gap: 10px;';
                             
@@ -3895,12 +3955,78 @@
                             info.style.cssText = 'flex: 1; font-family: monospace; font-size: 13px;';
                             
                             const coloName = result.colo ? getColoName(result.colo) : '';
+                            const region = result.region || 'OTHER';
+                            const regionDisplay = ' <span style="color: #ffaa00;">[' + region + ']</span>';
                             const coloDisplay = coloName ? ' <span style="color: #00aaff;">[' + coloName + ']</span>' : '';
-                            info.innerHTML = '<span style="color: #00ff00;">' + result.host + ':' + result.port + '</span>' + coloDisplay + ' <span style="color: #ffff00;">' + result.latency + 'ms</span>';
+                            info.innerHTML = '<span style="color: #00ff00;">' + result.host + ':' + result.port + '</span>' + regionDisplay + coloDisplay + ' <span style="color: #ffff00;">' + result.latency + 'ms</span>';
                             
                             resultItem.appendChild(checkbox);
                             resultItem.appendChild(info);
                             resultsList.appendChild(resultItem);
+                        }
+                        
+                        function renderResult(result, index) {
+                            // 只展示在线优选成功的结果，失败/超时的不再显示
+                            if (!result.success) {
+                                return;
+                            }
+                            
+                            // 添加地区信息
+                            result.region = getRegionFromColo(result.colo);
+                            
+                            // 添加原始索引（用于后续查找）
+                            result.originalIndex = allSuccessfulResults.length;
+                            
+                            // 添加到所有成功结果列表
+                            allSuccessfulResults.push(result);
+                            
+                            // 重新筛选和渲染
+                            filterAndRenderResults();
+                        }
+                        
+                        // 初始化地区筛选器
+                        function initRegionFilter() {
+                            const regionFilterContainer = document.getElementById('regionFilterContainer');
+                            if (!regionFilterContainer) return;
+                            
+                            const regions = [
+                                { code: 'US', name: '🇺🇸 美国' },
+                                { code: 'HK', name: '🇭🇰 香港/台湾' },
+                                { code: 'JP', name: '🇯🇵 日本' },
+                                { code: 'KR', name: '🇰🇷 韩国' },
+                                { code: 'SG', name: '🇸🇬 新加坡' },
+                                { code: 'DE', name: '🇩🇪 德国' },
+                                { code: 'GB', name: '🇬🇧 英国' },
+                                { code: 'NL', name: '🇳🇱 荷兰' },
+                                { code: 'SE', name: '🇸🇪 瑞典' },
+                                { code: 'FI', name: '🇫🇮 芬兰' },
+                                { code: 'ASIA', name: '🌏 其他亚洲' },
+                                { code: 'EU', name: '🇪🇺 其他欧洲' },
+                                { code: 'OTHER', name: '🌍 其他地区' }
+                            ];
+                            
+                            regions.forEach(region => {
+                                const label = document.createElement('label');
+                                label.style.cssText = 'display: inline-flex; align-items: center; cursor: pointer; color: #00ff00; font-size: 0.85rem;';
+                                
+                                const checkbox = document.createElement('input');
+                                checkbox.type = 'checkbox';
+                                checkbox.value = region.code;
+                                checkbox.checked = true; // 默认全选
+                                checkbox.style.cssText = 'margin-right: 5px; width: 16px; height: 16px; cursor: pointer;';
+                                
+                                checkbox.addEventListener('change', filterAndRenderResults);
+                                
+                                label.appendChild(checkbox);
+                                label.appendChild(document.createTextNode(region.name));
+                                regionFilterContainer.appendChild(label);
+                            });
+                            
+                            // 监听最快10个筛选器的变化
+                            const top10Filter = document.getElementById('enableTop10Filter');
+                            if (top10Filter) {
+                                top10Filter.addEventListener('change', filterAndRenderResults);
+                            }
                         }
                         
                         async function testOne(target) {
@@ -3962,49 +4088,78 @@
                     });
                 }
                 
-                if (addSelectedBtn) {
-                    addSelectedBtn.addEventListener('click', async function() {
-                        const checkboxes = resultsList.querySelectorAll('input[type="checkbox"]:checked');
-                        if (checkboxes.length === 0) {
-                            showStatus('${isFarsi ? 'لطفا حداقل یک مورد انتخاب کنید' : '请至少选择一项'}', 'error');
-                            return;
-                        }
-                        
-                        const selectedItems = [];
-                        checkboxes.forEach(cb => {
-                            const idx = parseInt(cb.dataset.index);
-                            const result = testResults[idx];
+                // 通用的添加选中项到优选列表的函数
+                async function addSelectedToYx(mode) {
+                    const checkboxes = resultsList.querySelectorAll('input[type="checkbox"]:checked');
+                    if (checkboxes.length === 0) {
+                        showStatus('${isFarsi ? 'لطفا حداقل یک مورد انتخاب کنید' : '请至少选择一项'}', 'error');
+                        return;
+                    }
+                    
+                    const selectedItems = [];
+                    checkboxes.forEach(cb => {
+                        const idx = parseInt(cb.dataset.index);
+                        if (!isNaN(idx) && idx >= 0 && idx < allSuccessfulResults.length) {
+                            const result = allSuccessfulResults[idx];
                             if (result && result.success) {
                                 const coloName = result.colo ? getColoName(result.colo) : result.nodeName;
                                 const itemStr = result.host + ':' + result.port + '#' + coloName;
                                 selectedItems.push(itemStr);
                             }
-                        });
-                        
-                        if (selectedItems.length > 0) {
-                            const yxInput = document.getElementById('yx');
-                            const newValue = selectedItems.join(',');
-                            yxInput.value = newValue;
-                            
-                            addSelectedBtn.disabled = true;
-                            addSelectedBtn.textContent = '${isFarsi ? 'در حال ذخیره...' : '保存中...'}';
-                            
-                            try {
-                                const configData = {
-                                    customIP: document.getElementById('customIP').value,
-                                    yx: newValue,
-                                    yxURL: document.getElementById('yxURL').value,
-                                    socksConfig: document.getElementById('socksConfig').value
-                                };
-                                await saveConfig(configData);
-                                showStatus('${isFarsi ? 'موفقیت‌آمیز بود' : '已替换'} ' + selectedItems.length + ' ${isFarsi ? 'مورد و ذخیره شد' : '项并已保存'}', 'success');
-                            } catch (err) {
-                                showStatus('${isFarsi ? 'خطا در ذخیره' : '保存失败'}: ' + err.message, 'error');
-                            } finally {
-                                addSelectedBtn.disabled = false;
-                                addSelectedBtn.textContent = '✓ ${isFarsi ? 'افزودن انتخاب‌شده‌ها به لیست ترجیحی' : '添加选中项到优选列表'}';
-                            }
                         }
+                    });
+                    
+                    if (selectedItems.length > 0) {
+                        const yxInput = document.getElementById('yx');
+                        let newValue = '';
+                        
+                        if (mode === 'append') {
+                            // 追加模式：读取现有值，追加新项
+                            const currentValue = yxInput.value.trim();
+                            if (currentValue) {
+                                newValue = currentValue + ',' + selectedItems.join(',');
+                            } else {
+                                newValue = selectedItems.join(',');
+                            }
+                        } else {
+                            // 替换模式：清空后添加
+                            newValue = selectedItems.join(',');
+                        }
+                        
+                        const targetBtn = mode === 'append' ? appendToYxBtn : replaceYxBtn;
+                        const originalText = targetBtn.textContent;
+                        
+                        targetBtn.disabled = true;
+                        targetBtn.textContent = '${isFarsi ? 'در حال ذخیره...' : '保存中...'}';
+                        
+                        try {
+                            const configData = {
+                                customIP: document.getElementById('customIP').value,
+                                yx: newValue,
+                                yxURL: document.getElementById('yxURL').value,
+                                socksConfig: document.getElementById('socksConfig').value
+                            };
+                            await saveConfig(configData);
+                            const modeText = mode === 'append' ? '${isFarsi ? '追加' : '追加'}' : '${isFarsi ? '替换' : '替换'}';
+                            showStatus(modeText + ' ' + selectedItems.length + ' ${isFarsi ? 'مورد و ذخیره شد' : '项并已保存'}', 'success');
+                        } catch (err) {
+                            showStatus('${isFarsi ? 'خطا در ذخیره' : '保存失败'}: ' + err.message, 'error');
+                        } finally {
+                            targetBtn.disabled = false;
+                            targetBtn.textContent = originalText;
+                        }
+                    }
+                }
+                
+                if (appendToYxBtn) {
+                    appendToYxBtn.addEventListener('click', async function() {
+                        await addSelectedToYx('append');
+                    });
+                }
+                
+                if (replaceYxBtn) {
+                    replaceYxBtn.addEventListener('click', async function() {
+                        await addSelectedToYx('replace');
                     });
                 }
                 
@@ -4079,6 +4234,63 @@
                 
                 function getColoName(colo) {
                     return coloMap[colo] || colo;
+                }
+                
+                // 从colo代码提取地区
+                function getRegionFromColo(colo) {
+                    if (!colo) return 'OTHER';
+                    const coloUpper = colo.toUpperCase();
+                    
+                    // 美国
+                    if (['SJC', 'LAX', 'SEA', 'SFO', 'DFW', 'ORD', 'IAD', 'ATL', 'MIA', 'DEN', 'PHX', 'BOS', 'EWR', 'JFK', 'LAS', 'MSP', 'DTW', 'PHL', 'CLT', 'SLC', 'PDX', 'SAN', 'TPA', 'IAH', 'MCO', 'AUS', 'BNA', 'RDU', 'IND', 'CMH', 'MCI', 'OMA', 'ABQ', 'OKC', 'MEM', 'JAX', 'RIC', 'BUF', 'PIT', 'CLE', 'CVG', 'MKE', 'STL', 'SAT', 'HNL', 'ANC', 'SMF', 'ONT', 'OAK'].includes(coloUpper)) {
+                        return 'US';
+                    }
+                    // 香港/台湾
+                    if (['HKG', 'TPE', 'TSA', 'KHH'].includes(coloUpper)) {
+                        return 'HK';
+                    }
+                    // 日本
+                    if (['NRT', 'HND', 'KIX', 'ITM', 'NGO', 'FUK', 'CTS', 'OKA'].includes(coloUpper)) {
+                        return 'JP';
+                    }
+                    // 韩国
+                    if (['ICN', 'GMP', 'PUS'].includes(coloUpper)) {
+                        return 'KR';
+                    }
+                    // 新加坡
+                    if (['SIN'].includes(coloUpper)) {
+                        return 'SG';
+                    }
+                    // 德国
+                    if (['FRA', 'MUC', 'TXL', 'BER', 'HAM', 'DUS', 'CGN', 'STR'].includes(coloUpper)) {
+                        return 'DE';
+                    }
+                    // 英国
+                    if (['LHR', 'LGW', 'STN', 'LTN', 'MAN', 'EDI', 'BHX'].includes(coloUpper)) {
+                        return 'GB';
+                    }
+                    // 荷兰
+                    if (['AMS'].includes(coloUpper)) {
+                        return 'NL';
+                    }
+                    // 瑞典
+                    if (['ARN', 'GOT'].includes(coloUpper)) {
+                        return 'SE';
+                    }
+                    // 芬兰
+                    if (['HEL'].includes(coloUpper)) {
+                        return 'FI';
+                    }
+                    // 其他亚洲
+                    if (['BKK', 'DMK', 'KUL', 'CGK', 'MNL', 'CEB', 'HAN', 'SGN', 'DAD', 'RGN', 'PNH', 'REP', 'VTE', 'BOM', 'DEL', 'MAA', 'BLR', 'CCU', 'HYD', 'AMD', 'COK', 'PNQ', 'GOI', 'CMB', 'DAC', 'KTM', 'ISB', 'KHI', 'LHE'].includes(coloUpper)) {
+                        return 'ASIA';
+                    }
+                    // 其他欧洲
+                    if (['CDG', 'ORY', 'MRS', 'LYS', 'NCE', 'BRU', 'LUX', 'ZRH', 'GVA', 'BSL', 'VIE', 'PRG', 'BUD', 'WAW', 'KRK', 'MXP', 'LIN', 'FCO', 'VCE', 'NAP', 'FLR', 'BGY', 'MAD', 'BCN', 'PMI', 'AGP', 'VLC', 'SVQ', 'BIO', 'LIS', 'OPO', 'FAO', 'DUB', 'CPH', 'OSL', 'BGO', 'RIX', 'TLL', 'VNO', 'ATH', 'SKG', 'SOF', 'OTP', 'BEG', 'ZAG', 'LJU'].includes(coloUpper)) {
+                        return 'EU';
+                    }
+                    // 其他地区
+                    return 'OTHER';
                 }
                 
                 async function testLatency(host, port, signal) {
