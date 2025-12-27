@@ -3663,7 +3663,6 @@
                 
                 let testAbortController = null;
                 let testResults = [];
-                let allSuccessfulResults = []; // 存储所有成功的结果（用于筛选）
                 
                 const startTestBtn = document.getElementById('startLatencyTest');
                 const stopTestBtn = document.getElementById('stopLatencyTest');
@@ -3862,10 +3861,10 @@
                         testResults = [];
                         allSuccessfulResults = [];
                         
-                        // 初始化地区筛选器（如果还没有初始化）
+                        // 清空地区筛选器（测试开始时没有结果，所以清空）
                         const regionFilterContainer = document.getElementById('regionFilterContainer');
-                        if (regionFilterContainer && regionFilterContainer.children.length === 0) {
-                            initRegionFilter();
+                        if (regionFilterContainer) {
+                            regionFilterContainer.innerHTML = '';
                         }
                         
                         testAbortController = new AbortController();
@@ -3898,6 +3897,9 @@
                             }
                             return { host, port, nodeName };
                         }
+                        
+                        // 存储所有成功的结果（用于筛选）
+                        let allSuccessfulResults = [];
                         
                         // 筛选并重新渲染结果
                         function filterAndRenderResults() {
@@ -3980,51 +3982,80 @@
                             // 添加到所有成功结果列表
                             allSuccessfulResults.push(result);
                             
+                            // 更新地区筛选器（显示实际存在的地区和数量）
+                            updateRegionFilter();
+                            
                             // 重新筛选和渲染
                             filterAndRenderResults();
                         }
                         
-                        // 初始化地区筛选器
-                        function initRegionFilter() {
+                        // 从coloMap中提取城市名称（去掉国旗emoji和国家名称）
+                        function getCityNameFromColo(colo) {
+                            if (!colo) return '';
+                            // 使用 getColoName 获取完整名称，然后去掉国旗emoji和国家名称
+                            const fullName = getColoName(colo);
+                            // 去掉国旗emoji和国家名称，只保留城市名称
+                            // 格式如：🇺🇸 圣何塞 -> 圣何塞
+                            return fullName.replace(/^[^\s]+\s+/, '') || colo;
+                        }
+                        
+                        // 根据实际结果动态更新地区筛选器
+                        function updateRegionFilter() {
                             const regionFilterContainer = document.getElementById('regionFilterContainer');
                             if (!regionFilterContainer) return;
                             
-                            const regions = [
-                                { code: 'US', name: '🇺🇸 美国' },
-                                { code: 'HK', name: '🇭🇰 香港/台湾' },
-                                { code: 'JP', name: '🇯🇵 日本' },
-                                { code: 'KR', name: '🇰🇷 韩国' },
-                                { code: 'SG', name: '🇸🇬 新加坡' },
-                                { code: 'DE', name: '🇩🇪 德国' },
-                                { code: 'GB', name: '🇬🇧 英国' },
-                                { code: 'NL', name: '🇳🇱 荷兰' },
-                                { code: 'SE', name: '🇸🇪 瑞典' },
-                                { code: 'FI', name: '🇫🇮 芬兰' },
-                                { code: 'ASIA', name: '🌏 其他亚洲' },
-                                { code: 'EU', name: '🇪🇺 其他欧洲' },
-                                { code: 'OTHER', name: '🌍 其他地区' }
-                            ];
+                            // 统计每个地区的数量和城市
+                            const regionData = {};
+                            allSuccessfulResults.forEach(result => {
+                                const region = result.region || 'OTHER';
+                                if (!regionData[region]) {
+                                    regionData[region] = {
+                                        count: 0,
+                                        cities: new Set()
+                                    };
+                                }
+                                regionData[region].count++;
+                                if (result.colo) {
+                                    const cityName = getCityNameFromColo(result.colo);
+                                    if (cityName) {
+                                        regionData[region].cities.add(cityName);
+                                    }
+                                }
+                            });
                             
-                            regions.forEach(region => {
+                            // 清空容器
+                            regionFilterContainer.innerHTML = '';
+                            
+                            // 按地区代码排序
+                            const sortedRegions = Object.keys(regionData).sort();
+                            
+                            // 为每个存在的地区创建筛选器
+                            sortedRegions.forEach(regionCode => {
+                                const data = regionData[regionCode];
+                                const count = data.count;
+                                const cities = Array.from(data.cities).sort();
+                                const cityList = cities.length > 0 ? ' ' + cities.join('/') : '';
+                                
                                 const label = document.createElement('label');
-                                label.style.cssText = 'display: inline-flex; align-items: center; cursor: pointer; color: #00ff00; font-size: 0.85rem;';
+                                label.style.cssText = 'display: inline-flex; align-items: center; cursor: pointer; color: #00ff00; font-size: 0.85rem; margin-right: 12px;';
                                 
                                 const checkbox = document.createElement('input');
                                 checkbox.type = 'checkbox';
-                                checkbox.value = region.code;
+                                checkbox.value = regionCode;
                                 checkbox.checked = true; // 默认全选
                                 checkbox.style.cssText = 'margin-right: 5px; width: 16px; height: 16px; cursor: pointer;';
                                 
                                 checkbox.addEventListener('change', filterAndRenderResults);
                                 
                                 label.appendChild(checkbox);
-                                label.appendChild(document.createTextNode(region.name));
+                                label.appendChild(document.createTextNode(regionCode + cityList + ' (' + count + ')'));
                                 regionFilterContainer.appendChild(label);
                             });
                             
-                            // 监听最快10个筛选器的变化
+                            // 监听最快10个筛选器的变化（只需要绑定一次）
                             const top10Filter = document.getElementById('enableTop10Filter');
-                            if (top10Filter) {
+                            if (top10Filter && !top10Filter.hasAttribute('data-listener-bound')) {
+                                top10Filter.setAttribute('data-listener-bound', 'true');
                                 top10Filter.addEventListener('change', filterAndRenderResults);
                             }
                         }
