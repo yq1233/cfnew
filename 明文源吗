@@ -1983,7 +1983,7 @@
                         KR: '🇰🇷 韩国', DE: '🇩🇪 德国', SE: '🇸🇪 瑞典', NL: '🇳🇱 荷兰',
                         FI: '🇫🇮 芬兰', GB: '🇬🇧 英国'
                     },
-                    terminal: '终端 v2.9',
+                    terminal: '终端 v2.8',
                     githubProject: 'GitHub 项目',
                     autoDetectClient: '自动识别',
                 selectionLogicText: '同地区 → 邻近地区 → 其他地区',
@@ -2114,7 +2114,7 @@
                         KR: '🇰🇷 کره جنوبی', DE: '🇩🇪 آلمان', SE: '🇸🇪 سوئد', NL: '🇳🇱 هلند',
                         FI: '🇫🇮 فنلاند', GB: '🇬🇧 بریتانیا'
                     },
-                    terminal: 'ترمینال v2.9',
+                    terminal: 'ترمینال v2.8',
                     githubProject: 'پروژه GitHub',
                     autoDetectClient: 'تشخیص خودکار',
                 selectionLogicText: 'هم‌منطقه → منطقه مجاور → سایر مناطق',
@@ -3713,6 +3713,10 @@
                     randomIPCount.addEventListener('input', function() {
                         localStorage.setItem('randomIPCount', this.value);
                     });
+                    // 初始化时，如果默认是隐藏的，则禁用输入框
+                    if (randomCountDiv && randomCountDiv.style.display === 'none') {
+                        randomIPCount.disabled = true;
+                    }
                 }
                 const testThreadsInput = document.getElementById('testThreads');
                 if (testThreadsInput) {
@@ -3724,12 +3728,17 @@
                 }
                 if (ipSourceSelect) {
                     const savedSource = localStorage.getItem('ipSourceSelect');
+                    const currentSource = savedSource || ipSourceSelect.value || 'manual';
                     if (savedSource) {
                         ipSourceSelect.value = savedSource;
-                        manualInputDiv.style.display = savedSource === 'manual' ? 'block' : 'none';
-                        urlFetchDiv.style.display = savedSource === 'urlFetch' ? 'block' : 'none';
-                        cfRandomDiv.style.display = savedSource === 'cfRandom' ? 'block' : 'none';
-                        randomCountDiv.style.display = savedSource === 'cfRandom' ? 'block' : 'none';
+                    }
+                    manualInputDiv.style.display = currentSource === 'manual' ? 'block' : 'none';
+                    urlFetchDiv.style.display = currentSource === 'urlFetch' ? 'block' : 'none';
+                    cfRandomDiv.style.display = currentSource === 'cfRandom' ? 'block' : 'none';
+                    randomCountDiv.style.display = currentSource === 'cfRandom' ? 'block' : 'none';
+                    // 当隐藏时禁用输入框，避免表单验证错误
+                    if (randomIPCount) {
+                        randomIPCount.disabled = currentSource !== 'cfRandom';
                     }
                 }
                 
@@ -3770,6 +3779,10 @@
                         urlFetchDiv.style.display = value === 'urlFetch' ? 'block' : 'none';
                         cfRandomDiv.style.display = value === 'cfRandom' ? 'block' : 'none';
                         randomCountDiv.style.display = value === 'cfRandom' ? 'block' : 'none';
+                        // 当隐藏时禁用输入框，避免表单验证错误
+                        if (randomIPCount) {
+                            randomIPCount.disabled = value !== 'cfRandom';
+                        }
                     });
                 }
                 
